@@ -1,3 +1,38 @@
+// Project #1 Simplified CPU 
+// Colin McMillen  10/31/23  
+// This project is to understand the basic properties and functions of a simplified CPU
+
+
+/*
+General project notes:
+@0000 0A09 //Load 8 in to ACC
+each address is 16 bits, in this line, the @ designates the address
+the instructions are 16 bits, 4 hex bits, 0A09
+The last 8 bits are the opcode
+The first 8 bits are the address operand
+
+-These are the supported Instructions
+0x01 ADD
+0x02 SUB
+0x03 MUL
+0x04 DIV  // no longer required, but still implement with inferred verilog
+0x05 XOR
+0x6 JUMP
+0x7 JUMPZ
+0x8 STORE
+0x9 LOAD
+*/
+
+
+
+//All previous modules for the ALU
+//These use some of the previous homeworks to work
+// need adder, need subtractor, need multiplier, need XOR
+
+//need 16 bit adder, can use the same 16 bit adder, but negate one of the inputs
+//need 16 bit multiplier 
+// - both A and B will be 8 bits instead of 16, LSB A[7:0], B[7:0]
+//need 16 bit XOR
 // these are all the other homework modules used in the project 1 ALU
 module half_adder(sum, carry, a, b); 
 input a, b; 
@@ -171,171 +206,886 @@ full_adder_16bit a8(mout,cout,fsum_p7,{{1{1'b0}},m7,{7{1'b0}}}, fcarryout_p7);
 
 endmodule
 
-
-
-
-/////////////////////////////////////////////////////////
-/////////////////////////Custom testbenches//////////////
-/////////////////////////////////////////////////////////
+ 
 
 
 
 
 
 
-module full_adder_8bit_tb;
-  reg[7:0]t_a, t_b;
-  wire[7:0]sum;
-  reg cin;
-  wire carry;
-  full_adder_8bit dut(sum, carry, t_a, t_b, cin);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//Module 1 RAM: 
+// all instructions are assumed to be present in memory
+
+// given an address, we read from it or we write to it
+// depending upon what we is, that will determine whether we read or write
+
+// if we read, then we input a random d, the address that we want to read / write to, set we to 0
+// then we copy the contents in the address to the output q. 
+
+// if we write, then we input an address to write to, set d = to the stuff we want to write,
+// set we to 1 and we get a random q output. 
+
+// is this memory begin used as a flip flop style? 
+// Don't we need multiple cells of memory to do this?
+// maybe this kind of thinking if for the register bank instead
+
+// 256X16 for the size of the sample intstruction file to be inserted
+
+
+// Module Complete
+module ram (q,we,d,address);
+input we;               // 1 bit read and write enable, 0 = read, 1 = write
+input [15:0]d;          // 16 bit data input
+output reg[15:0]q;          // 16 bit data output
+input [7:0]address;       // 8 bit input address
+
+// actual memory register
+reg[15:0]MEM[0:255]; // 256 16 bit words, address isn't included in that 16 bits
+
+
+always@(*)  // using address because nothing happens unless a new address comes in
+begin
+  if(we) // write
+    begin 
+        
+        MEM[address] <= d;  // memory at given address is equal to the input value, d 
+    
+    end
+  else  q <= MEM[address];// read, because the addresses are 8 bits and the MEM is 255 in size, this makes sense
+  
+  end
+  
+
+endmodule
+
+
+
+
+
+//Module 2 ALU:
+module alu(A,B,opALU, Rout);
+input [15:0]A, B;   // 16 bit inputs
+input [2:0]opALU;   // the op code is 2 hex bits, so 8 total bits
+output reg[15:0]Rout;  // the output of the instruction
+
+//multipler wires
+wire cout;
+wire [15:0]mulOut;
+
+//adder wires
+wire [15:0]sum;
+wire carry_out;
+//assuming cin is always 0;
+
+// subtractor wires
+wire [15:0]sub;
+wire sub_carry_out;
+
+//full_adder_16bit a1();  // 16 bit adder and works as subtractor too, needa a negate
+mymul_16bitgate m1(mulOut, cout, A[7:0], B[7:0]); //  16 bit multipler, only uses the 8 LSB of A and B as 8 bit inputs
+full_adder_16bit a1(sum, carry_out, A, B, 1'b0);      // 166 bit adder, uses all 16 bits of both A and B, cin of 0 
+full_adder_16bit s1(sub, sub_carry_out, A, ~B, 1'b1); // 16 bit subtractor, uses all 16 bits, needs a cin of 1
+
+
+
+//prase through the instruction set to get the correct command
+always@(*)
+  begin
+  if     (opALU == 1) Rout <= sum;        // if add
+  else if(opALU == 2) Rout <= sub;        // if sub 
+  else if(opALU == 3) Rout <= mulOut;        // if mul
+  else if(opALU == 4) Rout <= A / B;        // if div, not used so using inferred verilog logic here
+  else if(opALU == 5) Rout <= A ^ B;        // if xor , allowed to use this operator
+  end
+  
+  // this will have instances of the arithemic logic and the 
+  // values will be stored in regsiters and updated by the wires
+  // coming out these instance
+
+endmodule 
+
+
+
+
+//Module 3 Controler: This module acts as one big enable for the
+// different muxes, MAR's, MDR's, reads, and writes. 
+
+module ctr (
+clk,
+rst,
+zflag,
+opcode,
+muxPC,
+muxMAR,
+muxACC,
+loadMAR,
+loadPC,
+loadACC,
+loadMDR,
+loadIR,
+opALU,
+MemRW
+);
+input clk;
+input rst;
+input zflag;
+input [7:0]opcode;
+output reg muxPC;
+output reg muxMAR;
+output reg muxACC;
+output reg loadMAR;
+output reg loadPC;
+output reg loadACC;
+output reg loadMDR;
+output reg loadIR;
+output reg[2:0]opALU;
+output reg MemRW;
+
+
+
+
+//5 state bits to implement, 19 states
+
+parameter   //based upon the image used in the assignment
+
+fetch1 = 5'b0, fetch2 = 5'b1, 
+fetch3 = 5'b10, decode = 5'b11, 
+add1 = 5'b100, add2 = 5'b101, 
+sub1 = 5'b110, sub2 = 5'b111, 
+mul1 = 5'b1000, mul2 = 5'b1001,
+div1 = 5'b1010, div2 = 5'b1011,
+xo1 = 5'b1100, xo2 = 5'b1101,
+jmp = 5'b1110, jmpz = 5'b1111,
+str = 5'b10000, load1 = 5'b10001, 
+load2 = 5'b10010;
+
+
+reg[4:0] current_state, next_state; // registers for the always blocks
+
+// always block to update values of current state
+always@(posedge clk)begin       
+  if (rst) begin
+      current_state <= fetch1;
+    end
+    else
+      current_state <= next_state;
+
+  end  
+  
+  // turn off all the things set to 1 in the previous state
+  
+always@(current_state)begin
+  case (current_state)
+    
+    fetch1: begin 
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b1; 
+            loadPC <= 1'b1; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            next_state <= fetch2;
+            end
+    fetch2: begin
+      
+            // turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            
+            
+            loadMDR <= 1;
+            next_state <= fetch3;
+            end
+    fetch3: begin
+            //turn off the pverious enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+      
+            loadIR <= 1;
+            next_state <= decode;
+            end 
+    decode: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            
+            muxMAR  <= 1;
+            loadMAR <= 1;
+            // if statement for opcode, mux within a mux, maybe not optimized
+                 if(opcode==1) next_state <= add1;
+            else if(opcode==2) next_state <= sub1;
+            else if(opcode==3) next_state <= mul1;  
+            else if(opcode==4) next_state <= div1;
+            else if(opcode==5) next_state <= xo1;
+            else if(opcode==6) next_state <= jmp;
+            else if(opcode==7) next_state <= jmpz;
+            else if(opcode==8) next_state <= str;
+            else if(opcode==9) next_state <= load1;
+            end 
+      add1: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+          
+            loadMDR <= 1;
+            next_state <= add2;
+            end
+      add2: begin
+           //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            loadACC <= 1;
+            opALU = 1;
+            
+            next_state <= fetch1;
+            end
+      sub1: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            loadMDR <= 1;
+            next_state <= sub2;
+            end
+      sub2: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+        
+            loadACC <= 1;
+            opALU = 2;
+            next_state <= fetch1;
+            end
+      mul1: begin
+         //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+          
+            loadMDR <= 1;
+            next_state <= mul2;
+            end
+      mul2: begin
+            //turn off the previous enables
+           muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            loadACC <= 1;
+            muxACC <= 0;
+            opALU = 3;
+            next_state <= fetch1;
+            end
+      div1: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            MemRW   <= 0;
+            loadMDR <= 1;
+            next_state <= div2;
+            end
+      div2: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            loadACC <= 1;
+            muxACC <= 0;
+            opALU = 4;
+            next_state <= fetch1;
+            end
+       xo1: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            MemRW   <= 0;
+            loadMDR <= 1;
+            next_state <= xo2;
+            end
+       xo2: begin
+          //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            loadACC <= 1;
+            opALU = 5;
+            next_state <= fetch1;
+            end
+       jmp: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            muxPC  <= 1;
+            loadPC <= 1;
+            
+            next_state <= fetch2;
+            end
+      jmpz: begin
+           //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+        
+            
+            if(zflag==1) next_state <= jmp;
+            else if(zflag==0) next_state <= fetch1;
+            end
+       str: begin
+		      muxPC = 1'b0; 
+          muxMAR = 1'b0; 
+          muxACC = 1'b0; 
+          loadMAR = 1'b0; 
+          loadPC = 1'b0; 
+          loadACC = 1'b0; 
+          loadMDR = 1'b0; 
+          loadIR = 1'b0; 
+          opALU = 3'b0; 
+          
+          MemRW = 1'b1; 
+          
+          next_state <= fetch1;
+            end
+     load1: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            loadMDR <= 1;
+            next_state <= load2;
+            end
+     load2: begin
+            //turn off the previous enables
+            muxPC <= 1'b0; 
+            muxMAR <= 1'b0; 
+            muxACC <= 1'b0; 
+            loadMAR <= 1'b0; 
+            loadPC <= 1'b0; 
+            loadACC <= 1'b0; 
+            loadMDR <= 1'b0; 
+            loadIR <= 1'b0; 
+            opALU <= 3'b0; 
+            MemRW <= 1'b0; 
+            
+            loadACC <= 1;
+            muxACC <= 1;
+            next_state <= fetch1;
+            end
+    default: begin 
+             next_state <= fetch1;
+             end
+  endcase
+end
+endmodule
+
+
+//Module 4 Register Bank:
+// very self explainitory here
+// this module is complete
+module registers(
+clk,
+rst,
+PC_reg,
+PC_next,
+IR_reg,
+IR_next,
+ACC_reg,
+ACC_next,
+MDR_reg,
+MDR_next,
+MAR_reg,
+MAR_next,
+zflag_reg,
+zflag_next
+);
+input wire clk;
+input wire rst;
+output reg [7:0]PC_reg;
+input wire [7:0]PC_next;
+output reg [15:0]IR_reg;
+input wire [15:0]IR_next;
+output reg [15:0]ACC_reg;
+input wire [15:0]ACC_next;
+output reg [15:0]MDR_reg;
+input wire [15:0]MDR_next;
+output reg [7:0]MAR_reg;
+input wire [7:0]MAR_next;
+output reg zflag_reg;
+input wire zflag_next;
+
+
+
+
+always@(posedge clk)begin
+  if(rst) begin// set all registers back to zero
+    PC_reg    <= 0;
+    IR_reg    <= 0;
+    ACC_reg   <= 0;
+    MDR_reg   <= 0;
+    MAR_reg   <= 0;
+    zflag_reg <= 0;
+  end
+  else begin
+    PC_reg    <= PC_next;
+    IR_reg    <= IR_next;
+    ACC_reg   <= ACC_next;
+    MDR_reg   <= MDR_next;
+    MAR_reg   <= MAR_next;
+    zflag_reg <= zflag_next;
+  end 
+end
+endmodule 
+
+
+
+//Module 5 Datapath:
+//Data path: the next values are generated
+// for all the reigsters and the singles 
+// to drive all the muxes, generating new values
+// for the hardware
+
+
+
+module datapath(
+clk,
+rst,
+muxPC,
+muxMAR,
+muxACC,
+loadMAR,
+loadPC,
+loadACC,
+loadMDR,
+loadIR,
+opALU,
+zflag,
+opcode,
+MemAddr,
+MemD,
+MemQ
+);
+//inputs
+input clk;
+input rst;
+input muxPC;
+input muxMAR;
+input muxACC;
+input loadMAR;
+input loadPC;
+input loadACC;
+input loadMDR;
+input loadIR;
+input [2:0]opALU;
+input [15:0]MemQ;
+// outputs
+output zflag;
+output [7:0]opcode;
+output [7:0]MemAddr;
+output [15:0]MemD;
+// interim values
+reg [7:0]PC_next;
+wire [15:0]IR_next; // this
+reg [15:0]ACC_next;
+wire [15:0]MDR_next; //this 
+reg [7:0]MAR_next;
+reg zflag_next;
+wire [7:0]PC_reg;
+wire [15:0]IR_reg;
+wire [15:0]ACC_reg;
+wire [15:0]MDR_reg;
+wire [7:0]MAR_reg;
+wire zflag_reg;
+wire [15:0]ALU_out;
+
+
+
+
+alu a1(ACC_reg,MDR_reg,opALU,ALU_out);
+registers r1(clk, rst, PC_reg, PC_next, IR_reg, IR_next, ACC_reg, ACC_next, MDR_reg, MDR_next, MAR_reg, MAR_next, zflag_reg, zflag_next);
+
+
+
+always@(*) begin
+if(loadPC) 
+PC_next <= muxPC ? IR_reg[15:8]:(PC_reg+1'b1);  //correct
+else PC_next <= PC_reg;
+
+//Acc next
+if(loadACC) ACC_next <= muxACC ? MDR_reg: ALU_out;   //correct
+else ACC_next <= ACC_reg;
+
+//Mar next
+if(loadMAR)MAR_next <= muxMAR? IR_reg[15:8]:PC_reg; // correct
+else MAR_next <= MAR_reg;
+
+//zflag
+if(ACC_reg==0) zflag_next<=1;
+else zflag_next <= 0;
+  end
+
+assign IR_next = loadIR ? MDR_reg : IR_reg; // correct
+assign MDR_next = loadMDR ? MemQ : MDR_reg; // correct
+
+assign zflag = zflag_reg; 
+assign opcode = IR_reg[7:0]; 
+assign MemAddr = MAR_reg;     
+assign MemD = ACC_reg;
+
+endmodule
+
+
+
+
+
+
+//Module 6 High Level: 
+
+module proj1(clk,rst,MemRW_IO,MemAddr_IO,MemD_IO);  // one instance of each 
+input clk, rst;
+output MemRW_IO;        // instance of memory
+output [7:0]MemAddr_IO; // instance of controller
+output [15:0]MemD_IO;   // instance of datapath
+
+// interim values
+wire zflag,muxPC,muxMAR,muxACC,loadMAR,loadPC,loadACC,loadMDR,loadIR,MemRW;
+wire[2:0] opALU;
+wire[7:0] opcode,MemAddr;
+wire[15:0] MemD,MemQ; // for the memory / ram module 
+
+// instance of memory
+ram r1(MemQ,MemRW,MemD,MemAddr);
+// instance of controller
+ctr c1(clk, rst, zflag, opcode, muxPC, muxMAR, muxACC, loadMAR, loadPC, loadACC, loadMDR, loadIR, opALU, MemRW);
+// instance of datapath
+datapath d1(clk, rst, muxPC, muxMAR, muxACC, loadMAR, loadPC, loadACC, loadMDR, loadIR, opALU,zflag,opcode,MemAddr, MemD, MemQ);
+
+
+assign MemAddr_IO = MemAddr;
+assign MemD_IO = MemD;
+assign MemRW_IO = MemRW;
+
+endmodule
+
+
+
+
+
+// my custom test benches below
+
+
+
+`timescale 1ns / 1ns  // Adjust timescale as needed
+
+module proj1_tb;
+  //inputs to drive test
+  reg clk, rst;
+  wire memRW;
+  wire [7:0]memAddress;
+  wire [15:0]memD;
+  
+  
+  proj1 dut(clk, rst, memRW, memAddress, memD);
+  
+always
+#5 clk = !clk;
+initial begin
+clk=1'b0;
+rst=1'b1;
+$readmemh("memory.list", proj1_tb.dut.r1.MEM);
+#20 rst=1'b0;
+#40000 //might need to be very large
+//$display("Final value\n");
+
+// all the display statements for each line in the memory file
+
+$display("0x0000 %h\n",proj1_tb.dut.r1.MEM[16'h0000]);
+$display("0x0001 %h\n",proj1_tb.dut.r1.MEM[16'h0001]);
+$display("0x0002 %h\n",proj1_tb.dut.r1.MEM[16'h0002]);
+$display("0x0003 %h\n",proj1_tb.dut.r1.MEM[16'h0003]);
+$display("0x0004 %h\n",proj1_tb.dut.r1.MEM[16'h0004]);
+$display("0x0005 %h\n",proj1_tb.dut.r1.MEM[16'h0005]);
+$display("0x0006 %h\n",proj1_tb.dut.r1.MEM[16'h0006]);
+$display("0x0007 %h\n",proj1_tb.dut.r1.MEM[16'h0007]);
+$display("0x0008 %h\n",proj1_tb.dut.r1.MEM[16'h0008]);
+$display("0x0009 %h\n",proj1_tb.dut.r1.MEM[16'h0009]);
+$display("0x000A %h\n",proj1_tb.dut.r1.MEM[16'h000A]);
+$display("0x000B %h\n",proj1_tb.dut.r1.MEM[16'h000B]);
+$display("0x000C %h\n",proj1_tb.dut.r1.MEM[16'h000C]);
+$display("0x000D %h\n",proj1_tb.dut.r1.MEM[16'h000D]);
+$display("0x000E %h\n",proj1_tb.dut.r1.MEM[16'h000E]);
+$display("0x000F %h\n",proj1_tb.dut.r1.MEM[16'h000F]);
+$display("0x0010 %h\n",proj1_tb.dut.r1.MEM[16'h0010]);  // only thing that actually gets the value
+
+
+$finish;
+end
+
+endmodule
+
+
+
+
+
+module RAM_tb;
+    
+  reg enable;    //we
+  reg[15:0]t_d;  // d
+  reg[7:0]addy;  // address
+  wire[15:0]out;  // output
+  
+  ram dut(out, enable, t_d, addy);
+  
   initial begin
-    $monitor($time, "a=%d, b=%d, cin=%d,fcarry_out=%d, fsum=%d\n", t_a, t_b, cin, carry, sum);
-    //test cases
-    t_a = 8'd56;
-    t_b = 8'd42;
-    cin = 1'b0;
-    #5
-    t_a = 8'd32;
-    t_b = 8'd17;
-    cin = 1'b0;
-    #5
-    t_a = 8'd47;
-    t_b = 8'd70;
-    cin = 1'b0;
-    #5
+   
+    enable = 1;
+    t_d = 16'h000A;
+    addy = 8'h0F;
+    #35;
+    
+    enable = 0;
+    addy = 8'h0F;
+    #35;
+    
     $stop;
+    
+    
+    
+    
   end
 endmodule
 
 
-module mymul_16bitgate_tb;
-  reg[7:0]t_a,t_b;
-  wire out;
-  wire[15:0]t_mout;
+
+
+
+module registers_tb;
+  //module inputs
+  reg clk, rst, zflag;
+  reg[7:0]PC, MAR;
+  reg[15:0]IR, ACC, MDR;
   
-  mymul_16bitgate dut(t_mout,out ,t_a, t_b);
+  //module outputs
+  wire[7:0]PC_out, MAR_out;
+  wire[15:0]IR_out, ACC_out, MDR_out;    
+  wire zflag_out;  
   
+  registers dut(clk, rst, PC_out, PC, IR_out, IR, ACC_out, ACC, MDR_out, MDR, MAR_out, MAR, zflag_out, zflag);
   initial begin
+    $monitor($time, "resst=%d, PCin=%d, PCout=%d, IRin=%d, IRout=%d ACCin=%d, ACCout=%d, MDRin=%d, MDRout=%d, MARin=%d, MARout=%d, zflagin=%d, zflagout=%d", 
+    rst, PC, PC_out, IR, IR_out, ACC, ACC_out, MDR, MDR_out, MAR, MAR_out, zflag, zflag_out);
     
-    $monitor($time, "a=%d, b=%d, t_mout=%d\n",t_a, t_b, t_mout);
-    // test cases
-    t_a = 8'd32;
-    t_b = 8'd46;
-    #5
-    t_a = 8'd2;
-    t_b = 8'd3;
-    #5
-    t_a = 8'd11;
-    t_b = 8'd3;
-    #5
-  $stop;
-end 
-endmodule
-
-
-
-module full_adder_16bit_tb;
-  reg[15:0]t_a, t_b;
-  reg cin;
-  wire carry;
-  wire[15:0]sum;
-  
-  full_adder_16bit dut(sum, carry, t_a, t_b, cin);
-  initial begin
-    $monitor($time, "a=%d, b=%d,cin=%d, fcarry_out=%d, fsum=%d\n", t_a, t_b, cin, carry, sum);
-    // test cases
-    t_a = 16'd128;
-    t_b = 16'd47;
-    cin = 1'b0;
-    #5;
-    t_a = 16'd200;
-    t_b = 16'd5;
-    cin = 1'b0;
-    #5;
-  $stop;
-end
-endmodule
-
-
-
-
-module full_lookaheadadder_4bit_tb;
-  reg[3:0]t_a,t_b;
-  reg cin;
-  wire[3:0]t_sum;
-  wire carry;
-  
-  full_lookaheadadder_4bit dut(t_sum, carry, t_a, t_b, cin);
-  initial begin
-    $monitor($time," a=%d, b=%d, cin=%d, sum=%d, carry_out=%d\n", t_a, t_b, cin, t_sum, carry);
+    // test cases for the test bench
+    clk = 0; // start clock
+    rst = 0;
+    PC = 1;
+    IR = 1;
+    ACC = 1;
+    MDR = 1;
+    MAR = 1;
+    zflag = 1;
+    #15;
     
-    //test cases
-    t_a = 4'b1000;
-    t_b = 4'b1100;
-    cin = 1'b0;
-    #5;              // wait 5 units of time to execute next section of code
+    rst = 0;
+    PC = 2;
+    IR = 2;
+    ACC = 2;
+    MDR = 2;
+    MAR = 2;
+    zflag = 2;
+    #15;
     
-    t_a = 4'b1111;
-    t_b = 4'b0000;
-    cin = 1'b0;
-    #5;
+    rst = 1;
+    #20;
     
-    t_a = 4'b1010;
-    t_b = 4'b1110;
-    cin = 1'b0;
-    #5
-    
-    t_a = 4'b0010;
-    t_b = 4'b0001;
-    cin = 1'b0;
-    #5
     $stop;
-    
-    
+
 end
+
+always #5 clk = ~clk; // clock cycle
+
 endmodule
 
 
 
-module mymul_8bitgate_tb; 
-  
-  reg [3:0] t_a, t_b;
-  wire [7:0] t_mout;
-  wire cout;
 
-  mymul_8bitgate dut(t_mout, cout, t_a, t_b); 
+module ALU_TB;
+ reg[15:0]t_a, t_b;
+  reg[3:0]op;
+  wire [15:0]out;
 
-  initial begin 
-    $monitor($time," a=%d, b=%d, mout=%d, cout=%d\n", t_a, t_b, t_mout, cout);
+ 
+ alu dut(t_a, t_b, op, out);
+ initial begin 
+    $monitor($time," A=%d, B=%d, opALU=%d, Rout=%d\n", t_a, t_b, op, out);  // log the inputs and outputs
 
-    // Test Case 1
-    t_a = 4'b1111; 
-    t_b = 4'b0001; 
+    // test cases
+    t_a = 16'b1000_1111_1111;
+    t_b = 16'b1111;
+    op = 3'd2;      // add
+
     #5;
-
-    // Test Case 2
-    t_a = 4'b1111; 
-    t_b = 4'b0010; 
-    #5;
-
-    // Test Case 3
-    t_a = 4'b1111; 
-    t_b = 4'b1111; 
-    #5;
-
-    // Add more test cases if needed
-
-    // Terminate the simulation
     $stop;
-  end 
-endmodule
-
-
-
-
-
-
-
+  end
+endmodule 
 
 
