@@ -25,15 +25,6 @@ The first 8 bits are the address operand
 
 
 
-//All previous modules for the ALU
-//These use some of the previous homeworks to work
-// need adder, need subtractor, need multiplier, need XOR
-
-//need 16 bit adder, can use the same 16 bit adder, but negate one of the inputs
-//need 16 bit multiplier 
-// - both A and B will be 8 bits instead of 16, LSB A[7:0], B[7:0]
-//need 16 bit XOR
-// these are all the other homework modules used in the project 1 ALU
 module half_adder(sum, carry, a, b); 
 input a, b; 
 output sum, carry; 
@@ -97,7 +88,6 @@ module mux_2 (output out, input i0, i1, sel);
  endmodule
 
 
-// 4 bit mux works just fine, test bench works
 module mux_4bit (output [3:0] Out, 
  input [3:0] A, B, input sel);
  // no internal nets or registers 
@@ -107,14 +97,13 @@ module mux_4bit (output [3:0] Out,
  mux_2 m0 (Out[0], A[0], B[0], sel);
 endmodule
 
-//try this for the 16bit multiplier!
 module mux_8bit (output [7:0] Out, input [7:0]B,A, input sel); 
   mux_4bit m2(Out[7:4], A[7:4], B[7:4], sel);
   mux_4bit m1(Out[3:0], A[3:0], B[3:0], sel);
 endmodule
 
-// it wasn't specified in the directions if this should be 
-// two 8bit muxes, or 4 4bit muxes, so I did 4 4bit muxs.
+
+
 // 16 bit mux works, A and b had to be flipped, be careful in the future for this issue
 module mux_16bit (output [15:0] Out, input [15:0]A,B, input sel); 
   mux_4bit m1(Out[15:12], A[15:12], B[15:12], sel);
@@ -241,18 +230,11 @@ endmodule
 // all instructions are assumed to be present in memory
 
 // given an address, we read from it or we write to it
-// depending upon what we is, that will determine whether we read or write
-
+// depending upon what the WE signal is, that will determine whether we read or write
 // if we read, then we input a random d, the address that we want to read / write to, set we to 0
 // then we copy the contents in the address to the output q. 
-
 // if we write, then we input an address to write to, set d = to the stuff we want to write,
 // set we to 1 and we get a random q output. 
-
-// is this memory begin used as a flip flop style? 
-// Don't we need multiple cells of memory to do this?
-// maybe this kind of thinking if for the register bank instead
-
 // 256X16 for the size of the sample intstruction file to be inserted
 
 
@@ -267,7 +249,7 @@ input [7:0]address;       // 8 bit input address
 reg[15:0]MEM[0:255]; // 256 16 bit words, address isn't included in that 16 bits
 
 
-always@(*)  // using address because nothing happens unless a new address comes in
+always@(*) 
 begin
   if(we) // write
     begin 
@@ -275,11 +257,8 @@ begin
         MEM[address] <= d;  // memory at given address is equal to the input value, d 
     
     end
-  else  q <= MEM[address];// read, because the addresses are 8 bits and the MEM is 255 in size, this makes sense
-  
+	else  q <= MEM[address]; 
   end
-  
-
 endmodule
 
 
@@ -289,7 +268,7 @@ endmodule
 //Module 2 ALU:
 module alu(A,B,opALU, Rout);
 input [15:0]A, B;   // 16 bit inputs
-input [2:0]opALU;   // the op code is 2 hex bits, so 8 total bits
+input [2:0]opALU;   
 output reg[15:0]Rout;  // the output of the instruction
 
 //multipler wires
@@ -305,7 +284,7 @@ wire carry_out;
 wire [15:0]sub;
 wire sub_carry_out;
 
-//full_adder_16bit a1();  // 16 bit adder and works as subtractor too, needa a negate
+	//full_adder_16bit a1();  // 16 bit adder and works as subtractor too, need a negation
 mymul_16bitgate m1(mulOut, cout, A[7:0], B[7:0]); //  16 bit multipler, only uses the 8 LSB of A and B as 8 bit inputs
 full_adder_16bit a1(sum, carry_out, A, B, 1'b0);      // 166 bit adder, uses all 16 bits of both A and B, cin of 0 
 full_adder_16bit s1(sub, sub_carry_out, A, ~B, 1'b1); // 16 bit subtractor, uses all 16 bits, needs a cin of 1
@@ -318,13 +297,11 @@ always@(*)
   if     (opALU == 1) Rout <= sum;        // if add
   else if(opALU == 2) Rout <= sub;        // if sub 
   else if(opALU == 3) Rout <= mulOut;        // if mul
-  else if(opALU == 4) Rout <= A / B;        // if div, not used so using inferred verilog logic here
-  else if(opALU == 5) Rout <= A ^ B;        // if xor , allowed to use this operator
+  else if(opALU == 4) Rout <= A / B;        // div, not used so using inferred verilog logic here
+  else if(opALU == 5) Rout <= A ^ B;        // xor , allowed to use this operator
   end
   
-  // this will have instances of the arithemic logic and the 
-  // values will be stored in regsiters and updated by the wires
-  // coming out these instance
+
 
 endmodule 
 
